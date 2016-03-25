@@ -529,8 +529,11 @@ config X86_RDC321X
 	bool "RDC R-321x SoC"
 	depends on X86_32
 	depends on X86_EXTENDED_PLATFORM
+	select PCI
 	select M486
 	select X86_REBOOTFIXUPS
+	select EMBEDDED
+	select ARCH_REQUIRE_GPIOLIB
 	---help---
 	  This option is needed for RDC R-321x system-on-chip, also known
 	  as R-8610-(G).

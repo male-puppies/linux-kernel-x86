@@ -63,7 +63,7 @@ static void erase_callback(struct erase_info *done)
 	wake_up(wait_q);
 }
 
-static int erase_write (struct mtd_info *mtd, unsigned long pos,
+int erase_write (struct mtd_info *mtd, unsigned long pos,
 			int len, const char *buf)
 {
 	struct erase_info erase;

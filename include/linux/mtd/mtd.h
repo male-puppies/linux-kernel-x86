@@ -55,6 +55,10 @@ struct erase_info {
 	u_long priv;
 	u_char state;
 	struct erase_info *next;
+
+	u8 *erase_buf;
+	u32 erase_buf_ofs;
+	bool partial_start;
 };
 
 struct mtd_erase_region_info {
@@ -333,6 +337,24 @@ static inline uint32_t mtd_mod_by_eb(uint64_t sz, struct mtd_info *mtd)
 	return do_div(sz, mtd->erasesize);
 }
 
+static inline uint64_t mtd_roundup_to_eb(uint64_t sz, struct mtd_info *mtd)
+{
+	if (mtd_mod_by_eb(sz, mtd) == 0)
+		return sz;
+
+	/* Round up to next erase block */
+	return (mtd_div_by_eb(sz, mtd) + 1) * mtd->erasesize;
+}
+
+static inline uint64_t mtd_rounddown_to_eb(uint64_t sz, struct mtd_info *mtd)
+{
+	if (mtd_mod_by_eb(sz, mtd) == 0)
+		return sz;
+
+	/* Round down to the start of the current erase block */
+	return (mtd_div_by_eb(sz, mtd)) * mtd->erasesize;
+}
+
 static inline uint32_t mtd_div_by_ws(uint64_t sz, struct mtd_info *mtd)
 {
 	if (mtd->writesize_shift)
@@ -393,6 +415,9 @@ struct mtd_notifier {
 extern void register_mtd_user (struct mtd_notifier *new);
 extern int unregister_mtd_user (struct mtd_notifier *old);
 void *mtd_kmalloc_up_to(const struct mtd_info *mtd, size_t *size);
+
+int erase_write (struct mtd_info *mtd, unsigned long pos,
+		 int len, const char *buf);
 
 void mtd_erase_callback(struct erase_info *instr);
 
