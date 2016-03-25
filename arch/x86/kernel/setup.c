@@ -634,6 +634,118 @@ static void __init reserve_crashkernel(void)
 }
 #endif
 
+#ifdef CONFIG_X86_32
+# define NOS_MEM_ADDR_MAX	(512 << 20)
+#else
+# define NOS_MEM_ADDR_MAX	(896 << 20)
+#endif
+
+struct resource nosmem_res = {
+	.name  = "NOS Memory",
+	.start = 0,
+	.end   = 0,
+	.flags = IORESOURCE_BUSY | IORESOURCE_MEM
+};
+
+static int __init parse_nosmem_simple(char 	*cmdline,
+					   unsigned long long 	*crash_size,
+					   unsigned long long 	*crash_base)
+{
+	char *cur = cmdline;
+
+	*crash_size = memparse(cmdline, &cur);
+	if (cmdline == cur) {
+		pr_warning("nosmem: memory value expected\n");
+		return -EINVAL;
+	}
+
+	if (*cur == '@')
+		*crash_base = memparse(cur+1, &cur);
+	else if (*cur != ' ' && *cur != '\0') {
+		pr_warning("nosmem: unrecognized char\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int __init parse_nosmem(char *cmdline,
+			     unsigned long long system_ram,
+			     unsigned long long *crash_size,
+			     unsigned long long *crash_base)
+{
+	char 	*p = cmdline, *nos_cmdline = NULL;
+
+	BUG_ON(!crash_size || !crash_base);
+	*crash_size = 0;
+	*crash_base = 0;
+
+	/* find crashkernel and use the last one if there are more */
+	p = strstr(p, "nosmem=");
+	while (p) {
+		nos_cmdline = p;
+		p = strstr(p+1, "nosmem=");
+	}
+
+	if (!nos_cmdline)
+		return -EINVAL;
+
+	nos_cmdline += 7; /* strlen("nosmem=") */
+	return parse_nosmem_simple(nos_cmdline, crash_size, crash_base);
+}
+
+static void __init reserve_nosmem(void)
+{
+	unsigned long long total_mem;
+	unsigned long long nos_size, nos_base;
+	int ret;
+
+	total_mem = memblock_phys_mem_size();
+
+	ret = parse_nosmem(boot_command_line, total_mem,
+			&nos_size, &nos_base);
+	if (ret != 0) {
+		nos_base = 128 << 20;
+		nos_size = 256 << 20;
+	}
+
+	/* 0 means: find the address automatically */
+	if (nos_base <= 0) {
+		const unsigned long long alignment = 16<<20;	/* 16M */
+
+		/*
+		 *  kexec want bzImage is below NOS_MEM_ADDR_MAX
+		 */
+		nos_base = memblock_find_in_range(alignment,
+			       NOS_MEM_ADDR_MAX, nos_size, alignment);
+
+		if (!nos_base) {
+			pr_info("nosmem reservation failed - No suitable area found.\n");
+			return;
+		}
+	} else {
+		unsigned long long start;
+
+		start = memblock_find_in_range(nos_base,
+				 nos_base + nos_size, nos_size, 1<<20);
+		if (start != nos_base) {
+			pr_info("nosmem reservation failed - memory is in use.\n");
+			return;
+		}
+	}
+	memblock_reserve(nos_base, nos_size);
+
+	printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+			"for nosmem (System RAM: %ldMB)\n",
+			(unsigned long)(nos_size >> 20),
+			(unsigned long)(nos_base >> 20),
+			(unsigned long)(total_mem >> 20));
+
+	nosmem_res.start = nos_base;
+	nosmem_res.end   = nos_base + nos_size - 1;
+	insert_resource(&iomem_resource, &nosmem_res);
+}
+
 static struct resource standard_io_resources[] = {
 	{ .name = "dma1", .start = 0x00, .end = 0x1f,
 		.flags = IORESOURCE_BUSY | IORESOURCE_IO },
@@ -1145,6 +1257,8 @@ void __init setup_arch(char **cmdline_p)
 #if defined(CONFIG_ACPI) && defined(CONFIG_BLK_DEV_INITRD)
 	acpi_initrd_override((void *)initrd_start, initrd_end - initrd_start);
 #endif
+
+	reserve_nosmem();
 
 	vsmp_init();
 
